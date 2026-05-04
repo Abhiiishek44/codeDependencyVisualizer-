@@ -1,0 +1,38 @@
+{
+  "name": "codedependencyvisualizer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist-electron/main.js",
+"scripts": {
+  "dev": "vite",
+  "build": "tsc -b && vite build",
+  "electron": "electron .",
+  "prepare:electron": "node scripts/prepare-electron.cjs",
+  "dev:electron": "concurrently \"vite\" \"tsc -p tsconfig.electron.json --watch\" \"wait-on http://localhost:5173 && npm run prepare:electron && electron .\"",
+  "build:electron": "tsc -p tsconfig.electron.json && npm run prepare:electron",
+  "preview": "vite preview",
+  "lint": "eslint ."
+},
+  "dependencies": {
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.0.1",
+    "electron": "^41.5.0",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.5.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^8.0.10",
+    "wait-on": "^8.0.1"
+  }
+}

@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependency directories
+node_modules
+
+# Build outputs
+frontend/dist
+frontend/dist-ssr
+frontend/dist-electron
+backend/dist
+
+# Environment files
+.env
+.env.*
+
+# Vite/Electron
+frontend/.vite
+frontend/.electron
+
+# OS / Editor files
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Optional local files
+*.local
