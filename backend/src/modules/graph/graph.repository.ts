@@ -54,7 +54,7 @@ export const runWithRetry = async <T>(
 
 /**
  * Store parsed file data into Neo4j.
- * Creates: (File)-[:DECLARES]->(Function), (File)-[:IMPORTS]->(Module), (Function)-[:CALLS]->(Function)
+ * Creates: (Function)-[:DEFINED_IN]->(File), (File)-[:IMPORTS]->(Module), (Function)-[:CALLS]->(Function)
  */
 export const storeGraph = async (data: ParsedData): Promise<void> => {
   const session = neo4jDriver.session();
@@ -64,13 +64,13 @@ export const storeGraph = async (data: ParsedData): Promise<void> => {
   try {
     // 1. Merge File node
     await tx.run(
-      `MERGE (f:File {id: $file}) SET f.path = $file`,
+      `MERGE (f:File {id: $file}) SET f.path = $file, f.type = "file"`,
       { file: filePath }
     );
 
-    // 2. Clear old relationships from this file
+    // 2. Clear old relationships from this file securely (no DETACH DELETE)
     await tx.run(
-      `MATCH (f:File {id: $file})-[r:DECLARES]->() DELETE r`,
+      `MATCH (fn:Function)-[r:DEFINED_IN]->(f:File {id: $file}) DELETE r`,
       { file: filePath }
     );
     await tx.run(
@@ -78,11 +78,11 @@ export const storeGraph = async (data: ParsedData): Promise<void> => {
       { file: filePath }
     );
     await tx.run(
-      `MATCH (fn:Function) WHERE fn.id STARTS WITH $file MATCH (fn)-[r:CALLS]->() DELETE r`,
+      `MATCH (fn:Function {filePath: $file})-[r:CALLS]->() DELETE r`,
       { file: filePath }
     );
 
-    // 3. Create Function nodes + DECLARES edges
+    // 3. Create Function nodes + DEFINED_IN edges
     for (const fn of data.functions) {
       if (!fn.name || !fn.id) {
         logger.warn(`[graphRepo] Skipping invalid function node: ${JSON.stringify(fn)}`);
@@ -92,27 +92,40 @@ export const storeGraph = async (data: ParsedData): Promise<void> => {
       await tx.run(
         `
         MERGE (fn:Function {id: $id})
-        SET fn.name = $name
+        SET fn.name = $name, fn.filePath = $file, fn.type = "Function"
         WITH fn
         MATCH (f:File {id: $file})
-        MERGE (f)-[:DECLARES]->(fn)
+        MERGE (fn)-[:DEFINED_IN]->(f)
         `,
         { id: fn.id, name: fn.name, file: filePath }
       );
+    }
 
-      // 4. Create CALLS edges from this function
+    // 4. Create CALLS edges from this function
+    for (const fn of data.functions) {
+      if (!fn.name || !fn.id) continue;
+      
       for (const calledName of fn.calls) {
         if (!calledName) continue;
-        const targetId = `${filePath}:${calledName}`;
-
+        
+        let targetId = `${filePath}:${calledName}`;
+        
+        // Ensure both exist before CALLS is created
         await tx.run(
           `
-          MERGE (f1:Function {id: $from})
-          MERGE (f2:Function {id: $to})
-          SET f2.name = $toName
+          MATCH (f1:Function {id: $from})
+          OPTIONAL MATCH (fImported:Function {name: $toName})
+          WHERE fImported.filePath IN $importPaths OR fImported.filePath = $file
+          WITH f1, coalesce(fImported, null) as f2
+          WHERE f1 IS NOT NULL AND f2 IS NOT NULL
           MERGE (f1)-[:CALLS]->(f2)
           `,
-          { from: fn.id, to: targetId, toName: calledName }
+          { 
+            from: fn.id, 
+            toName: calledName, 
+            file: filePath,
+            importPaths: data.imports.map(imp => resolveImportPath(filePath, imp.source))
+          }
         );
       }
     }
@@ -126,6 +139,7 @@ export const storeGraph = async (data: ParsedData): Promise<void> => {
         `
         MERGE (f:File {id: $source})
         MERGE (m:Module {name: $module})
+        SET m.type = "module", f.type = "file"
         MERGE (f)-[:IMPORTS]->(m)
         `,
         { source: filePath, module: targetModule }
@@ -161,9 +175,10 @@ export const queryArchitecture = async (): Promise<GraphResponse> => {
   const session = neo4jDriver.session();
   try {
     const result = await session.run(`
-      MATCH (f:File)
-      OPTIONAL MATCH (f)-[:IMPORTS]->(m:Module)
-      RETURN f.id AS fileId, f.path AS filePath, m.name AS moduleName
+      MATCH (f1:File)
+      OPTIONAL MATCH (f1)-[:IMPORTS]->(f2)
+      RETURN f1.id AS fileId, f1.path AS filePath, f2.name AS moduleName
+      LIMIT 200
     `);
 
     const nodes: GraphNode[] = [];
@@ -196,7 +211,7 @@ export const queryFileLevel = async (filePath: string): Promise<GraphResponse> =
   try {
     const result = await session.run(
       `
-      MATCH (f:File {id: $file})-[:DECLARES]->(fn:Function)
+      MATCH (fn:Function)-[:DEFINED_IN]->(f:File {id: $file})
       OPTIONAL MATCH (fn)-[:CALLS]->(target:Function)
       RETURN f.id AS fileId, f.path AS filePath,
              fn.id AS fnId, fn.name AS fnName,
@@ -217,7 +232,7 @@ export const queryFileLevel = async (filePath: string): Promise<GraphResponse> =
 
       nodes.push({ id: fileId, label: fileId, type: "file" });
       nodes.push({ id: fnId, label: fnName, type: "function" });
-      edges.push(mapEdge(fileId, fnId, "DECLARES"));
+      edges.push(mapEdge(fnId, fileId, "DEFINED_IN"));
 
       if (targetId && targetName) {
         nodes.push({ id: targetId, label: targetName, type: "function" });
@@ -239,7 +254,7 @@ export const queryFunctionLevel = async (filePath: string): Promise<GraphRespons
   try {
     const result = await session.run(
       `
-      MATCH (f:File {id: $file})-[:DECLARES]->(fn:Function)
+      MATCH (fn:Function)-[:DEFINED_IN]->(f:File {id: $file})
       OPTIONAL MATCH (fn)-[:CALLS*1..3]->(target:Function)
       RETURN fn.id AS fnId, fn.name AS fnName,
              target.id AS targetId, target.name AS targetName

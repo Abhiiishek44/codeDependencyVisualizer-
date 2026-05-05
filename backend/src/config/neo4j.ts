@@ -18,6 +18,7 @@ export const verifyNeo4jConnection = async () => {
   try {
     await neo4jDriver.verifyConnectivity();
     console.log("Neo4j connection established");
+    await initConstraints();
   } catch (error) {
     console.error("Neo4j connection failed", {
       uri: NEO4J_URI,
@@ -25,5 +26,18 @@ export const verifyNeo4jConnection = async () => {
       error,
     });
     throw error;
+  }
+};
+
+const initConstraints = async () => {
+  const session = neo4jDriver.session();
+  try {
+    await session.run(`CREATE CONSTRAINT file_id IF NOT EXISTS FOR (f:File) REQUIRE f.id IS UNIQUE;`);
+    await session.run(`CREATE CONSTRAINT function_id IF NOT EXISTS FOR (fn:Function) REQUIRE fn.id IS UNIQUE;`);
+    console.log("Neo4j constraints initialized");
+  } catch (error) {
+    console.error("Failed to initialize Neo4j constraints", error);
+  } finally {
+    await session.close();
   }
 };
