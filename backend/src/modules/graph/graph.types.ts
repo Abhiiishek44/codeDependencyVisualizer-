@@ -12,7 +12,7 @@ export interface GraphNode {
 export interface GraphEdge {
   source: string;
   target: string;
-  relationship: "DECLARES" | "IMPORTS" | "CALLS";
+  relationship: "DEFINED_IN" | "IMPORTS" | "CALLS";
 }
 
 export interface GraphResponse {

@@ -8,12 +8,45 @@ const cleanName = (name: string): string =>
   name.trim().replace(/^[.\-_#@!]+/, "");
 
 /**
- * Check if a function entry is valid (non-empty name after cleaning).
+ * Common built-in functions / methods to ignore.
  */
-const isValidFunction = (fn: ParsedFunction): boolean => {
+const BUILT_IN_FILTERS: Record<string, Set<string>> = {
+  js: new Set([
+    "console.log", "console.error", "console.warn", "console.info", "console.debug",
+    "setTimeout", "setInterval", "clearTimeout", "clearInterval",
+    "parseInt", "parseFloat", "require",
+    "JSON.stringify", "JSON.parse",
+    "Array.isArray", "Object.keys", "Object.values", "Object.entries",
+    "Promise.resolve", "Promise.reject", "Promise.all",
+  ]),
+  py: new Set([
+    "print", "len", "range", "type", "str", "int", "float", "list", "dict",
+    "set", "tuple", "isinstance", "issubclass", "super", "enumerate",
+    "zip", "map", "filter", "sorted", "reversed", "abs", "min", "max",
+    "sum", "open", "input", "hasattr", "getattr", "setattr",
+  ]),
+};
+
+const getLanguageFilter = (filePath: string): Set<string> | null => {
+  if (filePath.endsWith(".js") || filePath.endsWith(".jsx") || filePath.endsWith(".ts") || filePath.endsWith(".tsx")) {
+    return BUILT_IN_FILTERS.js;
+  }
+  if (filePath.endsWith(".py")) {
+    return BUILT_IN_FILTERS.py;
+  }
+  return null;
+};
+
+/**
+ * Check if a function entry is valid (non-empty name after cleaning, and not a built-in).
+ */
+const isValidFunction = (fn: ParsedFunction, filterSet: Set<string> | null): boolean => {
   const cleaned = cleanName(fn.name);
   if (!cleaned) {
     logger.warn(`[normalizer] Skipping function with invalid name: "${fn.name}" (id: ${fn.id})`);
+    return false;
+  }
+  if (filterSet && filterSet.has(cleaned)) {
     return false;
   }
   return true;
@@ -29,9 +62,10 @@ const isValidFunction = (fn: ParsedFunction): boolean => {
 export const normalizeParsedData = (data: ParsedData): ParsedData => {
   const seenIds = new Set<string>();
   const normalizedFunctions: ParsedFunction[] = [];
+  const filterSet = getLanguageFilter(data.file);
 
   for (const fn of data.functions) {
-    if (!isValidFunction(fn)) continue;
+    if (!isValidFunction(fn, filterSet)) continue;
 
     const cleanedName = cleanName(fn.name);
     const cleanedId = `${data.file}:${cleanedName}`;
@@ -43,10 +77,10 @@ export const normalizeParsedData = (data: ParsedData): ParsedData => {
     }
     seenIds.add(cleanedId);
 
-    // Clean call references
+    // Clean call references and filter out built-ins
     const cleanedCalls = fn.calls
       .map(cleanName)
-      .filter((c) => c.length > 0);
+      .filter((c) => c.length > 0 && !(filterSet && filterSet.has(c)));
 
     normalizedFunctions.push({
       id: cleanedId,
