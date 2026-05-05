@@ -1,58 +1,66 @@
 import chokidar from "chokidar";
 import fs from "fs";
-import { parseJavaScript } from "../parser/languages/javascript";
+import { parseFile } from "../parser";
 import { storeGraphWithRetry } from "../modules/graph/graph.repository";
-import { parsePython } from "../parser/languages/python";
+import { logger } from "../config/logger";
 
-const shouldIgnore = (filePath: string) =>
-    filePath.includes("node_modules") ||
-    filePath.includes("dist") ||
-    filePath.includes("venv") ||
-    filePath.includes(".git");
+/** Directories/patterns to ignore */
+const IGNORE_PATTERN = /node_modules|\.git|dist|venv|__pycache__|\.pyc$|frontend/;
 
-const parseFile = (filePath: string, code: string) => {
-    if (filePath.endsWith(".py")) {
-        return parsePython(code);
-    }
+const shouldIgnore = (filePath: string): boolean =>
+  IGNORE_PATTERN.test(filePath);
 
-    if (filePath.endsWith(".js") || filePath.endsWith(".ts")) {
-        return parseJavaScript(code);
-    }
-
-    return null;
-};
-
+/** Serial promise queue to prevent concurrent Neo4j writes */
 let processingQueue = Promise.resolve();
 
-const enqueue = (task: () => Promise<void>) => {
-    processingQueue = processingQueue.then(task).catch((error) => {
-        console.error("❌ Queue task failed:", error);
-    });
-
-    return processingQueue;
+const enqueue = (task: () => Promise<void>): Promise<void> => {
+  processingQueue = processingQueue.then(task).catch((error) => {
+    logger.error("❌ Queue task failed:", error);
+  });
+  return processingQueue;
 };
-export function fileWatcher(projectPath: string) {
-    const watcher = chokidar.watch(projectPath, {
-        ignored: /node_modules|\.git|dist|venv/,
-        persistent: true
-    });
 
-    const handleFile = async (filePath: string, event: "changed" | "added") => {
-        if (shouldIgnore(filePath)) return;
+/**
+ * Watch a project directory for file changes.
+ * On add/change, parse the file and store the dependency graph in Neo4j.
+ */
+export function fileWatcher(projectPath: string): void {
+  logger.info(`👁️  Starting file watcher on: ${projectPath}`);
 
-        console.log(`File ${event}: ${filePath}`);
-        const code = fs.readFileSync(filePath, "utf-8");
-        const parsed = parseFile(filePath, code);
+  const watcher = chokidar.watch(projectPath, {
+    ignored: IGNORE_PATTERN,
+    persistent: true,
+    ignoreInitial: false, // process existing files on startup
+  });
 
-        if (!parsed) return;
-        await storeGraphWithRetry(filePath, parsed);
-    };
+  const handleFile = async (filePath: string, event: "added" | "changed"): Promise<void> => {
+    if (shouldIgnore(filePath)) return;
 
-    watcher.on("change", (filePath) => {
-        enqueue(() => handleFile(filePath, "changed"));
-    });
+    try {
+      const code = fs.readFileSync(filePath, "utf-8");
+      const parsed = parseFile(filePath, code);
 
-    watcher.on("add", (filePath) => {
-        enqueue(() => handleFile(filePath, "added"));
-    });
+      if (!parsed) return; // unsupported file type
+
+      logger.info(
+        `📄 File ${event}: ${filePath} → ${parsed.functions.length} fns, ${parsed.imports.length} imports`
+      );
+
+      await storeGraphWithRetry(parsed);
+    } catch (error) {
+      logger.error(`❌ Error processing ${filePath}:`, error);
+    }
+  };
+
+  watcher.on("add", (filePath) => {
+    enqueue(() => handleFile(filePath, "added"));
+  });
+
+  watcher.on("change", (filePath) => {
+    enqueue(() => handleFile(filePath, "changed"));
+  });
+
+  watcher.on("error", (error) => {
+    logger.error("❌ Watcher error:", error);
+  });
 }
