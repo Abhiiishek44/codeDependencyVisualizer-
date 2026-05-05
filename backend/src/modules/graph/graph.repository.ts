@@ -146,6 +146,38 @@ export const storeGraph = async (data: ParsedData): Promise<void> => {
       );
     }
 
+    // Store imports (File to Module/File)
+    for (const imp of data.imports) {
+      if (!imp.source) continue;
+
+      const resolvedSource = imp.source.startsWith('.') 
+              ? require('path').resolve(require('path').dirname(filePath), imp.source)
+              : imp.source; // A basic path resolution. Needs comprehensive handling in real implementation.
+
+      // Build a clean properties object mapping only existing values
+      const importProps: Record<string, any> = {};
+      if (imp.localName) importProps.localName = imp.localName;
+      if (imp.importedName) importProps.importedName = imp.importedName;
+
+      // Suggestion: Mark side-effect imports (like `import "dotenv/config"`) explicitly
+      if (!imp.localName && !imp.importedName) {
+        importProps.isSideEffect = true;
+      }
+
+      // MERGE without properties to guarantee creation safely, 
+      // then use `SET r += $importProps` to conditionally attach properties
+      await tx.run(`
+          MATCH (f:File {id: $fileId})
+          MERGE (target:File {id: $sourceId})
+          MERGE (f)-[r:IMPORTS]->(target)
+          SET r += $importProps
+      `, { 
+          fileId: filePath, 
+          sourceId: resolvedSource,
+          importProps
+      });
+    }
+
     await tx.commit();
     logger.info(`✅ Stored graph: ${filePath} (${data.functions.length} fns, ${data.imports.length} imports)`);
   } catch (err) {

@@ -24,7 +24,7 @@ export const parsePython = (filePath: string, code: string): ParsedData => {
       if (nameNode) {
         const fnName = nameNode.text.trim();
         if (fnName) {
-          const fnId = `${filePath}:${fnName}`;
+          const fnId = `${filePath}:${fnName}:${node.startPosition.row + 1}`;
           callMap.set(fnName, []);
 
           const prevFunction = currentFunction;
@@ -40,6 +40,8 @@ export const parsePython = (filePath: string, code: string): ParsedData => {
             id: fnId,
             name: fnName,
             calls: callMap.get(fnName) ?? [],
+            startLine: node.startPosition.row + 1,
+            endLine: node.endPosition.row + 1,
           });
 
           currentFunction = prevFunction;
@@ -52,7 +54,7 @@ export const parsePython = (filePath: string, code: string): ParsedData => {
     if (node.type === "import_statement") {
       for (const child of node.namedChildren) {
         if (child.type === "dotted_name") {
-          imports.push({ source: child.text, target: null });
+          imports.push({ source: child.text, localName: null, importedName: null });
         }
       }
     }
@@ -72,10 +74,11 @@ export const parsePython = (filePath: string, code: string): ParsedData => {
 
         if (namedImports.length > 0) {
           for (const named of namedImports) {
-            imports.push({ source: moduleName, target: named.text });
+             const importedName = named.text;
+             imports.push({ source: moduleName, localName: importedName, importedName });
           }
         } else {
-          imports.push({ source: moduleName, target: null });
+          imports.push({ source: moduleName, localName: null, importedName: null });
         }
       }
     }

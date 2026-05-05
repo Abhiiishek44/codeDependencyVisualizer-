@@ -54,7 +54,7 @@ export const parseJavaScript = (filePath: string, code: string): ParsedData => {
     // ── Function declarations ──
     const fnName = extractFunctionName(node);
     if (fnName) {
-      const fnId = `${filePath}:${fnName}`;
+      const fnId = `${filePath}:${fnName}:${node.startPosition.row + 1}`;
       callMap.set(fnName, []);
 
       const prevFunction = currentFunction;
@@ -69,6 +69,8 @@ export const parseJavaScript = (filePath: string, code: string): ParsedData => {
         id: fnId,
         name: fnName,
         calls: callMap.get(fnName) ?? [],
+        startLine: node.startPosition.row + 1,
+        endLine: node.endPosition.row + 1,
       });
 
       currentFunction = prevFunction;
@@ -92,26 +94,27 @@ export const parseJavaScript = (filePath: string, code: string): ParsedData => {
                 for (let k = 0; k < spec.namedChildCount; k++) {
                   const specifier = spec.namedChild(k);
                   if (specifier?.type === "import_specifier") {
-                    const name = specifier.childForFieldName("name")?.text?.trim();
-                    if (name) {
-                      imports.push({ source, target: name });
+                    const importedName = specifier.childForFieldName("name")?.text?.trim();
+                    const localName = specifier.childForFieldName("alias")?.text?.trim() || importedName;
+                    if (importedName) {
+                      imports.push({ source, localName: localName || null, importedName });
                       hasNamedImports = true;
                     }
                   }
                 }
               } else if (spec?.type === "identifier") {
                 // default import
-                imports.push({ source, target: spec.text.trim() });
+                imports.push({ source, localName: spec.text.trim(), importedName: "default" });
                 hasNamedImports = true;
               } else if (spec?.type === "namespace_import") {
-                imports.push({ source, target: null });
+                imports.push({ source, localName: spec.text.trim(), importedName: null });
                 hasNamedImports = true;
               }
             }
           }
         }
         if (!hasNamedImports) {
-          imports.push({ source, target: null });
+          imports.push({ source, localName: null, importedName: null });
         }
       }
     }
@@ -126,7 +129,7 @@ export const parseJavaScript = (filePath: string, code: string): ParsedData => {
           if (firstArg?.type === "string") {
             const source = firstArg.text.replace(/['"]/g, "").trim();
             if (source) {
-              imports.push({ source, target: null });
+              imports.push({ source, localName: null, importedName: null });
             }
           }
         }

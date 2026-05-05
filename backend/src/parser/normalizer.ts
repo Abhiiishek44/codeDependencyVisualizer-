@@ -68,7 +68,7 @@ export const normalizeParsedData = (data: ParsedData): ParsedData => {
     if (!isValidFunction(fn, filterSet)) continue;
 
     const cleanedName = cleanName(fn.name);
-    const cleanedId = `${data.file}:${cleanedName}`;
+    const cleanedId = `${data.file}:${cleanedName}:${fn.startLine}`;
 
     // Deduplicate by ID
     if (seenIds.has(cleanedId)) {
@@ -86,6 +86,8 @@ export const normalizeParsedData = (data: ParsedData): ParsedData => {
       id: cleanedId,
       name: cleanedName,
       calls: [...new Set(cleanedCalls)], // deduplicate calls too
+      startLine: fn.startLine,
+      endLine: fn.endLine
     });
   }
 

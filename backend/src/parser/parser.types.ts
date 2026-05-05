@@ -4,19 +4,25 @@
  */
 
 export interface ParsedFunction {
-  /** Unique ID: `filePath:functionName` */
+  /** Unique ID: `filePath:functionName:startLine` */
   id: string;
   /** Function name (cleaned, trimmed) */
   name: string;
   /** Names of functions called within this function */
   calls: string[];
+  /** The starting line number in the source file */
+  startLine: number;
+  /** The ending line number in the source file */
+  endLine: number;
 }
 
 export interface ParsedImport {
-  /** The module/file being imported */
+  /** The local variable name the import is bound to */
+  localName: string | null;
+  /** The original name of the exported symbol, or null for default */
+  importedName: string | null;
+  /** The raw path string specified in the import statement */
   source: string;
-  /** Specific symbol imported, or null for default/namespace imports */
-  target: string | null;
 }
 
 export interface ParsedData {
